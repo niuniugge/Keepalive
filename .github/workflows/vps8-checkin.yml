@@ -35,4 +35,4 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           VPS8_EMAIL: ${{ vars.VPS8_EMAIL }}
           VPS8_PASSWORD: ${{ vars.VPS8_PASSWORD }}
-        run: python vps8_checkin.py
+        run: python vps8-checkin/vps8_checkin.py
