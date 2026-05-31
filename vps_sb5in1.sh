@@ -3,6 +3,7 @@
 # =========================
 # 老王sing-box安装脚本 - 青云志精简版
 # vless-version-reality|vmess-ws-tls(tunnel)|hysteria2|tuic5
+# argo 端口默认为8001，可通过导入外部环境变量 ARGOPORT 修改
 # nat小鸡安装后需要将端口修改为nat映射的端口
 # 最后更新时间: 2026.5.30[新增Anytls，socks5，ss2022(有封ip风险,建议ipv6使用)等协议]
 # 删除订阅相关功能，改为直接输出节点链接到url.txt文件，方便用户复制使用
@@ -31,6 +32,7 @@ client_dir="${work_dir}/url.txt"
 export vless_port=${PORT:-$(shuf -i 1000-65000 -n 1)}
 export CFIP=${CFIP:-'cdns.doon.eu.org'} 
 export CFPORT=${CFPORT:-'443'} 
+export ARGOPORT=${ARGOPORT:-'8001'}
 
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
@@ -229,7 +231,6 @@ install_singbox() {
     curl -sLo "${work_dir}/sing-box" "https://$ARCH.ssss.nyc.mn/sb"
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
 
-    nginx_port=$(($vless_port + 1))
     tuic_port=$(($vless_port + 2))
     hy2_port=$(($vless_port + 3))
     uuid=$(cat /proc/sys/kernel/random/uuid)
@@ -238,7 +239,7 @@ install_singbox() {
     private_key=$(echo "${output}" | awk '/PrivateKey:/ {print $2}')
     public_key=$(echo "${output}" | awk '/PublicKey:/ {print $2}')
 
-    allow_port $vless_port/tcp $nginx_port/tcp $tuic_port/udp $hy2_port/udp > /dev/null 2>&1
+    allow_port $vless_port/tcp $tuic_port/udp $hy2_port/udp > /dev/null 2>&1
 
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
     openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
@@ -303,7 +304,7 @@ EOF
       "type": "vmess",
       "tag": "vmess-ws",
       "listen": "::",
-      "listen_port": 8001,
+      "listen_port": ${ARGOPORT},
       "users": [
         {
           "uuid": "$uuid"
@@ -449,7 +450,7 @@ After=network.target
 Type=simple
 NoNewPrivileges=yes
 TimeoutStartSec=0
-ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --url http://localhost:8001 --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1"
+ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --url http://localhost:${ARGOPORT} --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1"
 Restart=on-failure
 RestartSec=5s
 
@@ -482,11 +483,11 @@ command_background=true
 pidfile="/var/run/sing-box.pid"
 EOF
 
-    cat > /etc/init.d/argo << 'EOF'
+    cat > /etc/init.d/argo << EOF
 #!/sbin/openrc-run
 description="Cloudflare Tunnel"
 command="/bin/sh"
-command_args="-c '/etc/sing-box/argo tunnel --url http://localhost:8001 --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1'"
+command_args="-c '/etc/sing-box/argo tunnel --url http://localhost:${ARGOPORT} --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1'"
 command_background=true
 pidfile="/var/run/argo.pid"
 EOF
@@ -619,11 +620,6 @@ uninstall_singbox() {
             rm -rf "${work_dir}" || true
             rm -f /etc/systemd/system/sing-box.service /etc/systemd/system/argo.service
 
-            reading "\n是否卸载 Nginx？ (y/n): " choice
-            case "${choice}" in
-                y|Y) manage_packages uninstall nginx ;;
-                *)   yellow "取消卸载Nginx\n\n" ;;
-            esac
             green "\nsing-box 卸载成功\n\n" && exit 0
             ;;
         *) purple "已取消卸载操作\n\n" ;;
@@ -678,7 +674,7 @@ auto_install() {
     green "\nsing-box 安装完成\n"
 }
 
-# 无交互静默卸载（-u 参数），含 nginx
+# 无交互静默卸载（-u 参数）
 auto_uninstall() {
     green "开始无交互式卸载sing-box..."
 
@@ -701,20 +697,7 @@ auto_uninstall() {
     rm -rf "${work_dir}"
     rm -f /usr/bin/sb
 
-    if command_exists nginx; then
-        if command_exists rc-service; then
-            rc-service nginx stop   > /dev/null 2>&1
-            rc-update del nginx default > /dev/null 2>&1
-        elif command_exists systemctl; then
-            systemctl stop    nginx > /dev/null 2>&1
-            systemctl disable nginx > /dev/null 2>&1
-        fi
-        manage_packages uninstall nginx
-    else
-        yellow "nginx 未安装，跳过卸载 nginx。"
-    fi
-
-    green "\nsing-box 及 nginx 已完全卸载!\n"
+    green "\nsing-box 已完全卸载!\n"
 }
 
 # 变更配置
@@ -981,7 +964,7 @@ manage_argo() {
             ;;
         4)
             clear
-            yellow "\n固定隧道可为json或token，固定隧道端口为8001, 使用token请在cloudflare里设置一致\njson获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
+            yellow "\n固定隧道可为json或token，固定隧道端口为${ARGOPORT}, 使用token请在cloudflare里设置一致\njson获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
             reading "\n请输入你的argo域名: " argo_domain
             ArgoDomain=$argo_domain
             reading "\n请输入你的argo密钥(token或json): " argo_auth
@@ -992,9 +975,9 @@ tunnel: $(cut -d\" -f12 <<< "$argo_auth")
 credentials-file: ${work_dir}/tunnel.json
 protocol: http2
 
-ingress:
-  - hostname: $ArgoDomain
-    service: http://localhost:8001
+        ingress:
+    - hostname: $ArgoDomain
+        service: http://localhost:${ARGOPORT}
     originRequest:
       noTLSVerify: true
   - service: http_status:404
@@ -1530,9 +1513,9 @@ add_socks5_inbound() {
     current_uuid=$(get_current_uuid | tr -d '\n\r')
 
     while true; do
-        reading "请输入 Socks5 监听端口 (回车随机生成): " sk_port
+        reading "请输入 Socks5 监听端口 (回车为vless port + 1): " sk_port
         if [ -z "$sk_port" ]; then
-            sk_port=$(shuf -i 10000-65000 -n 1)
+            sk_port=$(($vless_port + 1))
             green "socks5监听端口：${purple}${sk_port}${re}"
             break
         fi
@@ -1546,33 +1529,13 @@ add_socks5_inbound() {
         break
     done
 
-    reading "请输入 Socks5 用户名 (回车自动使用UUID前8位): " sk_user
-    if [ -n "$sk_user" ]; then
-        green "socks5用户名：${purple}${sk_user}${re}"
-    else
-        if [ -n "$current_uuid" ]; then
-            sk_user=$(printf '%s' "${current_uuid:0:8}" | tr -d '\n\r')
-            green "自动设置用户名: ${purple}${sk_user}${re}"
-        else
-            red "无法获取UUID，请手动输入用户名"
-            reading "请输入 Socks5 用户名: " sk_user
-            [ -z "$sk_user" ] && { red "用户名不能为空"; sleep 1; return; }
-        fi
-    fi
+    reading "请输入 Socks5 用户名 (回车默认为 yutian): " sk_user
+    sk_user=${sk_user:-"yutian"}
+    green "socks5用户名：${purple}${sk_user}${re}"
 
-    reading "请输入 Socks5 密码 (回车自动使用UUID后12位): " sk_pass
-    if [ -n "$sk_pass" ]; then
-        green "socks5密码：${purple}${sk_pass}${re}"
-    else
-        if [ -n "$current_uuid" ]; then
-            sk_pass=$(printf '%s' "${current_uuid: -12}" | tr -d '\n\r')
-            green "自动设置密码: ${purple}${sk_pass}${re}"
-        else
-            red "无法获取UUID，请手动输入密码"
-            reading "请输入 Socks5 密码: " sk_pass
-            [ -z "$sk_pass" ] && { red "密码不能为空"; sleep 1; return; }
-        fi
-    fi
+    reading "请输入 Socks5 密码 (回车默认为 yutian=abcd): " sk_pass
+    sk_pass=${sk_pass:-"yutian=abcd"}
+    green "socks5密码：${purple}${sk_pass}${re}"
 
     jq --arg tag "$tag" \
        --argjson port "$sk_port" \
@@ -1897,7 +1860,7 @@ menu() {
     green "Telegram群组: ${purple}https://t.me/eooceu${re}"
     green "YouTube频道: ${purple}https://youtube.com/@eooce${re}"
     green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
-    purple "=== 老王sing-box安装脚本 ===\n"
+    purple "=== 老王sing-box安装脚本 青云志精简版===\n"
     purple "---Argo 状态: ${argo_status}"
     purple "singbox 状态: ${singbox_status}\n"
     green "1. 安装sing-box"
@@ -1947,7 +1910,7 @@ case "$1" in
         green "  -i, --install     无交互安装sing-box"
         green "  -c, --check       查看节点信息"
         green "  -r, --restart     重新获取argo临时隧道并更新到订阅"
-        green "  -u, --uninstall   无交互卸载sing-box（含 nginx)"
+        green "  -u, --uninstall   无交互卸载sing-box"
         green "  -h, --help        显示此帮助信息"
         echo ""
         green "  不带参数          进入交互式主菜单"
