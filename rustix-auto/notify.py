@@ -156,7 +156,7 @@ def notify_summary(results: list) -> bool:
             line += f" ｜ <code>{_esc(err[:40])}</code>"
         lines.append(line)
     lines += [
-        "━" * 18,
+        "━" * 13,
         '🔗 <a href="https://my.rustix.me">前往控制台</a>',
     ]
     return _send("\n".join(lines))
