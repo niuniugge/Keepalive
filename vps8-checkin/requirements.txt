@@ -1,2 +1,0 @@
-DrissionPage>=4.1.0.18
-requests>=2.31.0
