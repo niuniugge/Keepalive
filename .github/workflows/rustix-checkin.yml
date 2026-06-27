@@ -18,8 +18,9 @@ concurrency:
 
 jobs:
   rustix-alive:
-    # workflow_dispatch 始终执行；repository_dispatch 仅 status 含 Down 时执行
-    if: github.event_name != 'repository_dispatch' || contains(github.event.client_payload.status, 'Down')
+    # repository_dispatch 始终执行（由 Uptime Kuma 触发），job 内判断是否需跳过
+    # 没有 uptime 可删除 if 条件，并将定时触发重新启用
+    if: github.event_name != 'repository_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -28,11 +29,30 @@ jobs:
         run: |
           echo "event_name: ${{ github.event_name }}"
           echo 'client_payload: ${{ toJSON(github.event.client_payload) }}'
-      
+
+      - name: 🔍 检查是否 DOWN 事件
+        id: check_down
+        run: |
+          STATUS='${{ github.event.client_payload.status }}'
+          echo "status=[$STATUS]"
+          if echo "$STATUS" | grep -qi "down"; then
+            echo "is_down=yes" >> "$GITHUB_OUTPUT"
+            echo "✅ 检测到 DOWN，继续执行"
+          else
+            echo "is_down=no" >> "$GITHUB_OUTPUT"
+            echo "⏭️ 不是 DOWN 事件，跳过后续步骤"
+          fi
+
+      - name: ⏭️ 跳过（非 DOWN 事件）
+        if: steps.check_down.outputs.is_down != 'yes'
+        run: echo "非 DOWN 事件，跳过执行" && exit 0
+
       - name: 检出代码
+        if: steps.check_down.outputs.is_down == 'yes'
         uses: actions/checkout@v4
 
       - name: 设置 Python
+        if: steps.check_down.outputs.is_down == 'yes'
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -40,15 +60,18 @@ jobs:
           cache-dependency-path: rustix-auto/requirements.txt
 
       - name: 安装依赖
+        if: steps.check_down.outputs.is_down == 'yes'
         working-directory: rustix-auto
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: 安装 Playwright 浏览器
+        if: steps.check_down.outputs.is_down == 'yes'
         run: python -m playwright install --with-deps chromium
 
       - name: 运行自动启动脚本
+        if: steps.check_down.outputs.is_down == 'yes'
         working-directory: rustix-auto
         env:
           # 从 GitHub Secrets 读取账号，格式：邮箱:密码,邮箱:密码
